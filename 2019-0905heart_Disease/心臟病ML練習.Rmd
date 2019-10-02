@@ -1,0 +1,492 @@
+---
+title: "心臟病ML練習"
+author: "C.C."
+date: "2019/9/27"
+output:   
+  html_document:
+    toc: true
+    number_sections: False
+    toc_float:
+      collapsed: TRUE
+      smooth_scroll: TRUE
+      number_sections: true
+---
+
+```{r setup, include=FALSE}
+# https://rpubs.com/jiankaiwang/lr
+# https://www.jamleecute.com/logistic-regression-part1-%E7%BE%85%E5%90%89%E6%96%AF%E8%BF%B4%E6%AD%B8/
+# 
+#主要
+library(xgboost)
+#讀入csv檔
+library(readr)
+#字體設定
+library(showtext)
+#分割資料集
+#library(scorecard)
+library(rsample)   # for data splitting
+#資料處理
+library(dplyr)
+library(vtreat)
+#處理表格
+library(data.table)
+#表格設定
+library(knitr)
+library(kableExtra)
+library(ellipse)
+library(pheatmap)
+library(DT)
+#矩陣
+library(Matrix)
+#畫圖
+library(ggplot2)
+#分割資料集
+library(rsample)   # for data splitting
+# 我們會使用套件中的函數smbinning::smbinning，來將連續變數切割為類別變數
+library(smbinning)
+library(car)
+#使用InformationValue套件中的optimalCutoff函數來尋找最適機率切點。
+library(InformationValue)
+# library(scales) # needed for labels=percent ， 會跟 readr 衝突導致 csv 無法讀取
+#RMD 設定
+# https://bookdown.org/yihui/rmarkdown/html-document.html#tabbed-sections
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(fig.showtext=TRUE)
+options(knitr.table.format="html")
+showtext_auto()
+# E:/台中教育大學/R語言 練習/2019-0905heart_Disease/heart.csv
+# df<- read_csv("heart.csv")
+df<- readr :: read_csv("heart.csv", col_types = cols(
+  age = col_double(),
+  sex = col_factor(levels = c(0,1), ordered = FALSE, include_na = FALSE),
+  cp = col_factor(levels = c(0,1,2,3), ordered = FALSE, include_na = FALSE),
+  trestbps = col_double(),
+  chol = col_double(),
+  fbs = col_factor(levels = c(0,1), ordered = FALSE, include_na = FALSE),
+  restecg = col_factor(levels = c(0,1,2), ordered = FALSE, include_na = FALSE),
+  thalach = col_double(),
+  exang = col_factor(levels = c(0,1), ordered = FALSE, include_na = FALSE),
+  oldpeak = col_double(),
+  slope = col_factor(levels = c(0,1,2), ordered = FALSE, include_na = FALSE),
+  ca = col_factor(levels = c(0,1,2,3,4), ordered = FALSE, include_na = FALSE),
+  thal = col_factor(levels = c(0,1,2,3), ordered = FALSE, include_na = FALSE),
+  target = col_factor(levels = c(0,1), ordered = FALSE, include_na = FALSE)
+) )
+```
+
+# 前言
+
+這一份有關於心臟病的Rmd 主要是為了以下三個目的:
+
+ 1.學習查找文章  
+ 2.學習機械學習的相關工具  
+ 3.學習資料視覺化的相關技巧  
+
+# 分析步驟
+ 1.資料載入與檢視  
+ 2.資料探勘  
+ 3.資料前處理  
+ 4.產生訓練資料集與測試資料集  
+ 5.篩選變數  
+ 6.訓練模型與預測  
+ 7.模型診斷與調整  
+ 8.模型比較(v.s. Machine Learning Methods)  
+
+# 資料(raw data)
+
+## 變數說明
+
+ 1.年齡(age) : 該人的年齡（歲）  
+ 2.性別(sex )  : 人的性別（1 = 男性，0 = 女性）  
+ 3.cp : 經歷過的胸痛（值1：典型心絞痛，值2：非典型性心絞痛，值3：非心絞痛，值4：無症狀）    
+ 4.trestbps : 該人的靜息血壓（入院時的毫米汞柱）  
+ 5.cholmg / dl : 人的膽固醇測量值，mg / dl  
+ 6.fbs : 該人的空腹血糖（120 mg / dl，1 = true； 0 = false）  
+ 7.restecg : 靜息心電圖測量 (0 = normal, 1 = 有ST-T波異常, 2 = 根據Estes的標準顯示可能或確定的左心室肥大)  
+ 8.thalach : 該人達到的最大心率  
+ 9.exang : 運動誘發的心絞痛(1 = yes; 0 = no)   
+ 10. oldpeak : 運動引起的ST段壓低相對於休息(ST”與ECG圖上的位置有關)    
+ 11.slope : 運動高峰ST段的斜率(Value 1: 上升, Value 2: 平, Value 3: 下降)  
+ 12.ca : 大血管（0-3）的數量(number of major vessels (0-3) colored by flourosopy)    
+ 13.thal ： 一種稱為地中海貧血的血液疾病(3 = normal; 6 = 固定缺陷; 7 = 可逆缺陷)  
+ 14.target : 心臟病 1 or 0
+
+## 資料表(tabsets)
+
+```{r tabsets, echo=FALSE}
+#表格
+datatable(df)
+#https://haozhu233.github.io/kableExtra/awesome_table_in_html_cn.html
+#df[1:10, ] %>%
+#   mutate_if(is.numeric, function(x) {
+#    cell_spec(x, "html", bold = T, 
+#              color = spec_color(x, end = 0.9),
+#              font_size = spec_font_size(x))
+#  }) %>%
+#  kable("html", escape = F, align = "c") %>%
+#  kable_styling("striped", full_width = F)
+
+```
+
+## 變數屬性 與 概要
+
+```{r demo , echo=FALSE}
+str(df)
+
+summary(df) %>%
+  kable("html", escape = F, align = "c") %>%
+  kable_styling("striped", full_width = F)
+```
+
+
+## 資料探勘(Exploratory Data Analysis)
+
+### 年齡(Age)分組 有心臟病分布情況
+
+```{r EDA Age , echo=FALSE}
+df$age_cut <- df$age  #創立新欄位 
+df$age_cut <- cut(df$age_cut, breaks = seq(20,90,10),include.lowest = TRUE) #對 age_cut 以 10 年分組
+ggplot2::ggplot(data = df, aes(x = age_cut, fill = target)) +
+  geom_bar() +
+  geom_text(stat = "count", aes(label=..count..),size=3.5,position = position_stack(vjust = 0.5)) +
+  scale_fill_brewer(palette="Paired") +
+  labs(x = "age")
+
+```
+
+### sex 分組 有心臟病分布情況
+
+```{r EDA sex , echo=FALSE}
+ggplot(data = df, aes(x = sex, fill = target)) +
+  geom_bar() +
+  geom_text(stat = "count", aes(label=..count..),size=3.5,position = position_stack(vjust = 0.5)) +
+  scale_fill_brewer(palette="Paired") +
+  labs(x = "sex")
+
+```
+
+### cp 分組 有心臟病分布情況
+
+```{r EDA cp , echo=FALSE}
+ggplot(data = df, aes(x = cp, fill = target)) +
+  geom_bar() +
+  geom_text(stat = "count", aes(label=..count..),size=3.5,position = position_stack(vjust = 0.5)) +
+  scale_fill_brewer(palette="Paired") +
+  labs(x = "cp")
+
+```
+
+### trestbps 分組 有心臟病分布情況
+
+```{r EDA trestbps , echo=FALSE}
+df$trestbps_cut <- df$trestbps  #創立新欄位 
+df$trestbps_cut <- cut(df$trestbps_cut, breaks = seq(90,200,10),include.lowest = TRUE) #對 age_cut 以 10 年分組
+ggplot2::ggplot(data = df, aes(x = trestbps_cut, fill = target)) +
+  geom_bar() +
+  geom_text(stat = "count", aes(label=..count..),size=3.5,position = position_stack(vjust = 0.5)) +
+  scale_fill_brewer(palette="Paired") +
+  labs(x = "trestbps")
+
+```
+
+### chol 分組 有心臟病分布情況
+
+```{r EDA chol , echo=FALSE}
+df$chol_cut <- df$chol  #創立新欄位 
+df$chol_cut <- cut(df$chol_cut, breaks = seq(120,580,46),include.lowest = TRUE) #對 age_cut 以 10 年分組
+ggplot2::ggplot(data = df, aes(x = chol_cut, fill = target)) +
+  geom_bar() +
+  geom_text(stat = "count", aes(label=..count..),size=3.5,position = position_stack(vjust = 0.5)) +
+  scale_fill_brewer(palette="Paired") +
+  labs(x = "chol")
+```
+
+### fbs 分組 有心臟病分布情況
+
+```{r EDA fbs , echo=FALSE}
+ggplot2::ggplot(data = df, aes(x = fbs, fill = target)) +
+  geom_bar() +
+  geom_text(stat = "count", aes(label=..count..),size=3.5,position = position_stack(vjust = 0.5)) +
+  scale_fill_brewer(palette="Paired") +
+  labs(x = "fbs")
+```
+
+### restecg 分組 有心臟病分布情況
+
+```{r EDA restecg , echo=FALSE}
+ggplot2::ggplot(data = df, aes(x = restecg, fill = target)) +
+  geom_bar() +
+  geom_text(stat = "count", aes(label=..count..),size=3.5,position = position_stack(vjust = 0.5)) +
+  scale_fill_brewer(palette="Paired") +
+  labs(x = "restecg")
+```
+
+### thalach 分組 有心臟病分布情況
+
+```{r EDA thalach , echo=FALSE}
+df$thalach_cut <- df$thalach  #創立新欄位 
+df$thalach_cut <- cut(df$thalach_cut, breaks = seq(70,210,20),include.lowest = TRUE) #對 _cut 以 10 年分組
+ggplot2::ggplot(data = df, aes(x = thalach_cut, fill = target)) +
+  geom_bar() +
+  geom_text(stat = "count", aes(label=..count..),size=3.5,position = position_stack(vjust = 0.5)) +
+  scale_fill_brewer(palette="Paired") +
+  labs(x = "thalach")
+```
+
+### exang 分組 有心臟病分布情況
+
+```{r EDA exang , echo=FALSE}
+ggplot2::ggplot(data = df, aes(x = exang, fill = target)) +
+  geom_bar() +
+  geom_text(stat = "count", aes(label=..count..),size=3.5,position = position_stack(vjust = 0.5)) +
+  scale_fill_brewer(palette="Paired") +
+  labs(x = "exang")
+```
+
+### oldpeak 分組 有心臟病分布情況
+
+```{r EDA oldpeak , echo=FALSE}
+df$oldpeak_cut <- df$oldpeak  #創立新欄位 
+df$oldpeak_cut <- cut(df$oldpeak_cut, breaks = seq(0,7,1),include.lowest = TRUE) #對 _cut 以 10 年分組
+ggplot2::ggplot(data = df, aes(x = oldpeak_cut, fill = target)) +
+  geom_bar() +
+  geom_text(stat = "count", aes(label=..count..),size=3.5,position = position_stack(vjust = 0.5)) +
+  scale_fill_brewer(palette="Paired") +
+  labs(x = "oldpeak")
+```
+
+### slope 分組 有心臟病分布情況
+
+```{r EDA slope , echo=FALSE}
+ggplot2::ggplot(data = df, aes(x = slope, fill = target)) +
+  geom_bar() +
+  geom_text(stat = "count", aes(label=..count..),size=3.5,position = position_stack(vjust = 0.5)) +
+  scale_fill_brewer(palette="Paired") +
+  labs(x = "slope")
+```
+
+### ca 分組 有心臟病分布情況
+
+```{r EDA ca , echo=FALSE}
+ggplot2::ggplot(data = df, aes(x = ca, fill = target)) +
+  geom_bar() +
+  geom_text(stat = "count", aes(label=..count..),size=3.5,position = position_stack(vjust = 0.5)) +
+  scale_fill_brewer(palette="Paired") +
+  labs(x = "ca")
+```
+
+### thal 分組 有心臟病分布情況
+
+```{r EDA thal , echo=FALSE}
+ggplot2::ggplot(data = df, aes(x = ca, fill = target)) +
+  geom_bar() +
+  geom_text(stat = "count", aes(label=..count..),size=3.5,position = position_stack(vjust = 0.5)) +
+  scale_fill_brewer(palette="Paired") +
+  labs(x = "thal")
+```
+
+# 邏輯斯迴歸(Logistic regression)
+
+
+## 產生訓練資料集與測試資料集
+
+```{r Logistic part 1 , echo=TRUE}
+#分割訓練集和測試集
+set.seed(1234)
+lr.split <- initial_split(df, ratio = 0.7)
+lr.train <- training(lr.split)
+lr.test <- testing(lr.split)
+```
+
+## 計算IV (Information Value) 值，篩選變數
+
+ 關於IV Table的部分，我們可以得出以下資訊：  
+ 1.根據經驗，IV>=0.3即表示該預測變數與目標變數有較強的關係。  
+ 2.類別變數IV=0表示類別水準值過多。  
+ 3.連續變數IV=0表示沒有顯著的切點存在。  
+ 
+ 我們決定篩選age + sex + cp + thalach + ca變數進行模型分析。  
+
+```{r Logistic part 2 , echo=FALSE}
+# 將連續型變數和類別型變數分開
+factor_vars <- c ("sex", "cp", "fbs", "restecg","exang", "slope", "thal")
+continuous_vars <- c("age", "trestbps","chol", "thalach", "oldpeak")
+
+# 建立一個變數IV值表格 : numeric(參數要放變數行數)
+iv_df <- data.frame(VARS = c(factor_vars, continuous_vars), IV = numeric(12))
+
+# 計算類別變數的IV值
+for(factor_var in factor_vars){
+  smb <- smbinning.factor(df = lr.train ,y = "target",x = factor_var)
+  if(class(smb) != "character"){
+    iv_df[iv_df$VARS == factor_var,"IV"] <- smb$iv
+  }
+}
+
+# 計算連續變數的IV值
+for(continuous_var in continuous_vars){
+  smb <- smbinning(df = lr.train,y = "target",x = continuous_var)
+  if(class(smb) != "character"){
+    iv_df[iv_df$VARS == continuous_var,"IV"] <- smb$iv
+  }
+}
+ 
+# 將變數依據IV值高低排列
+iv_df <- iv_df[order(-iv_df$IV),]
+iv_df
+
+```
+
+## 訓練模型與預測
+
+```{r Logistic part 3 , echo=FALSE}
+lr.mod <- glm(formula = target ~ age + sex + cp + thalach + ca,
+                data = lr.train,family = binomial(link = "logit"))
+summary(lr.mod)
+```
+
+## 模型共線性檢查VIF(希望VIF值都在4以下)
+
+```{r Logistic part 4 , echo=FALSE}
+# 模型共線性檢查VIF(希望VIF值都在4以下)
+vif(lr.mod)
+```
+
+## 預測測試資料集
+
+最適機率切點為: 0.2883186
+
+```{r Logistic part 5 , echo=FALSE}
+#https://stackoverflow.com/questions/29873178/error-in-model-frame-default-for-predict-factor-has-new-levels-for-a-cha?rq=1
+#如果變數中含有 字符 可能會導致
+prob <- predict.glm(lr.mod, lr.test, type="response") # predicted scores
+#使用InformationValue套件中的optimalCutoff函數來尋找最適機率切點。
+optCutOff <- optimalCutoff(actuals = lr.test$target,predictedScores = prob)
+optCutOff
+```
+
+
+ 決定了機率切點後，我們來驗證模型使用測試資料集的預測效果如何。我們會分別計算以下指標：  
+
+ 1.Confusion Matrix  
+ 2.misClassification Rate  
+ 3.precision  
+ 4.Sensitivity  
+ 5.Specifisity  
+ 6.Concordance  
+ 7.ROC/AUC  
+ 
+ 
+ > 1.Confusion Matrix: 左欄為預測值，上方欄則為實際值。  
+ 
+```{r Logistic part 6 , echo=FALSE}
+# 產生Confusion Matrix
+confusionMatrix(actuals = lr.test$target,predictedScores = prob,threshold = optCutOff)
+```
+
+ > 2.預測錯誤率(misClassification Rate)
+ 
+```{r Logistic part 7 , echo=FALSE}
+misClassError(actuals = lr.test$target,predictedScores = prob,threshold = optCutOff)
+```
+ 
+ > 3.預測精準度(Precision，及所有預測為1的事件中，真實亦為1的事件比率）。
+ 
+```{r Logistic part 8 , echo=FALSE}
+precision(actuals = lr.test$target,predictedScores = prob,threshold = optCutOff)
+```
+ 
+ > 4.Sensitivity 又稱Recall(捕捉率），即真實為1，且被正確預測為1的比例。（通常與Precision精準度成反比）
+
+```{r Logistic part 9 , echo=FALSE}
+sensitivity(actuals = lr.test$target,predictedScores = prob, threshold = optCutOff)
+```
+ 
+ > 5.Specifisity 即真實為0，且被正確預測為0的比例。
+ 
+```{r Logistic part 10 , echo=FALSE}
+specificity(actuals = lr.test$target,predictedScores = prob, threshold = optCutOff)
+```
+ 
+ > 6.Concordance 則為所有預測結果(0,1)成對的機率值中，真實為1的事件，1的機率高於0的機率佔所有成對資料的比例。理想中，該比例越高越好，即表示所有預測(0,1)的機率值，若真實為1，則1的預測機率理應都大於0的預測機率。（discordance則為相反結果的比例，tied則為機率無差別的結果比例，三比例相加應為100%）。
+ 
+```{r Logistic part 11 , echo=FALSE}
+Concordance(actuals = lr.test$target,predictedScores = prob)
+```
+ 
+ > 7.ROC/AUC 可以發現在ROC曲線下面積為85.43%。理想中，會希望ROC曲線前段越陡越好，後段越緩越好。表示模型整體預測能力的好壞。
+ 
+```{r Logistic part 12 , echo=FALSE}
+plotROC(actuals = lr.test$target,predictedScores = prob)
+```
+
+總結以上指標數據，可以發現模型預測能力還不錯，錯誤率15.92%都還在能接受範圍內。
+
+## 模型診斷與調整
+
+為了近一步看看模型有無優化空間以及合適度，常見做法包括  
+(1)殘差分析  
+(2)K-fold Cross Validation  
+(3)Bootstrap  
+(4)StepwiseRegression  
+我們這邊就以逐步回歸為範例，來看看模型是否有優化空間。  
+
+```{r Logistic part 13 , echo=FALSE}
+# 依據每一個變數加入/移除模型後AIC資訊的變化，來判斷變數對模型的效果
+# full model設定為我們剛剛建模結果
+m_full <- lr.mod
+
+#基礎只有截距的模型
+m_null <- glm(formula = target ~ 1, family = binomial(link = "logit"),data = lr.train)
+
+# backward selection 逐步向後法
+stepModBack <- step(object = m_full,scope = list(lower = m_null, upper = m_full),direction = "backward",trace = F)
+summary(stepModBack) #模型結果的AIC跟原始模型相同為15570
+```
+
+
+
+
+
+# 決策樹(decision tree)
+
+## 參數說明
+
+
+# 支持向量機(SVM)
+
+
+## 參數說明
+
+
+# 梯度提升(GBM)
+
+
+## 參數說明
+
+
+# 極限梯度提升 (xgboost)
+
+
+## 參數說明
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
